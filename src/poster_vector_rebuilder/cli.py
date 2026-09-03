@@ -50,8 +50,8 @@ def main() -> None:
     normalize.add_argument("-o", "--output", required=True, help="Job directory")
     normalize.add_argument(
         "--rotation",
-        choices=["keep", "90cw", "90ccw", "180"],
-        default="keep",
+        choices=["auto", "keep", "90cw", "90ccw", "180"],
+        default="auto",
         help="Rotation applied after perspective rectification",
     )
     normalize.add_argument(
@@ -92,7 +92,7 @@ def main() -> None:
     rebuild = sub.add_parser("rebuild", help="Run normalize, segment, constrained background, OCR, assembly and PDF preflight")
     rebuild.add_argument("image")
     rebuild.add_argument("-o", "--output", required=True, help="Job directory")
-    rebuild.add_argument("--rotation", choices=["keep", "90cw", "90ccw", "180"], default="keep")
+    rebuild.add_argument("--rotation", choices=["auto", "keep", "90cw", "90ccw", "180"], default="auto")
     rebuild.add_argument("--corners", default=None)
     rebuild.add_argument("--trim-mm", default=None)
     rebuild.add_argument("--bleed-mm", type=float, default=None)

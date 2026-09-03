@@ -3,7 +3,7 @@ import json
 import numpy as np
 from PIL import Image
 
-from poster_vector_rebuilder.normalize import normalize_reference, order_quad
+from poster_vector_rebuilder.normalize import normalize_reference, order_quad, _select_rotation_from_ocr_scores
 
 
 def test_order_quad():
@@ -33,3 +33,8 @@ def test_manual_normalization(tmp_path: Path):
 
     manifest = json.loads((job / "metadata" / "source_manifest.json").read_text())
     assert len(manifest["sha256"]) == 64
+
+
+def test_auto_orientation_requires_clear_ocr_win():
+    assert _select_rotation_from_ocr_scores({"keep": 210, "180": 310, "90cw": 20, "90ccw": 15}) == "180"
+    assert _select_rotation_from_ocr_scores({"keep": 130, "180": 140, "90cw": 20, "90ccw": 15}) == "keep"

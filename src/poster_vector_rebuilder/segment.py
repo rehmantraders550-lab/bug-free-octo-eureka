@@ -47,6 +47,14 @@ def deterministic_foreground_risk(rgb: np.ndarray) -> np.ndarray:
     residual = np.linalg.norm(lab - smooth, axis=2)
     residual = _robust_scale(residual, 55, 98)
 
+    # A broad, flat object can have little local texture in its centre. Measure
+    # its divergence from the robust dominant field as a modest supporting cue;
+    # this is colour-agnostic and therefore works for black, white and coloured
+    # artwork alike. It is deliberately not strong enough to decide masks alone.
+    dominant_lab = np.median(lab.reshape(-1, 3), axis=0)
+    dominant_distance = np.linalg.norm(lab - dominant_lab, axis=2)
+    dominant_distance = _robust_scale(dominant_distance, 58, 99)
+
     gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
     gradient = cv2.magnitude(gx, gy)
@@ -61,29 +69,25 @@ def deterministic_foreground_risk(rgb: np.ndarray) -> np.ndarray:
     local_std = np.sqrt(np.maximum(mean2 - mean * mean, 0))
     texture = _robust_scale(local_std, 60, 98)
 
-    # Current target posters use a blue/cyan background. This remains only one
-    # cue and is never used as the sole foreground classifier.
-    hue_distance = np.abs(hue - 105.0)
-    hue_distance = np.minimum(hue_distance, 180.0 - hue_distance)
-    non_blue = np.clip((hue_distance - 18.0) / 30.0, 0, 1) * np.clip(sat / 80.0, 0, 1)
-
+    # Do not encode a target-poster colour such as "blue background" here.
+    # A smooth black, kraft, white or saturated field is valid background. The
+    # local residual, texture and edge signals above identify foreground by its
+    # structure instead of treating a global colour/value as an object.
     neutral_bright = np.clip((value - 165.0) / 70.0, 0, 1) * np.clip((58.0 - sat) / 40.0, 0, 1)
-    very_dark = np.clip((82.0 - value) / 48.0, 0, 1)
 
     risk = np.maximum.reduce(
         [
             0.92 * gradient,
             0.72 * texture,
             0.88 * residual,
-            0.92 * non_blue,
-            0.95 * neutral_bright,
-            0.88 * very_dark,
+            0.46 * dominant_distance,
+            0.84 * neutral_bright,
         ]
     )
     risk = np.clip(
         risk
         + 0.18 * np.minimum(gradient, residual)
-        + 0.12 * np.minimum(texture, non_blue),
+        + 0.08 * np.minimum(texture, neutral_bright),
         0,
         1,
     )
@@ -115,6 +119,12 @@ def _precision_foreground_mask(risk: np.ndarray, threshold: float = 0.42) -> tup
         area = cv2.contourArea(contour)
         x, y, cw, ch = cv2.boundingRect(contour)
         if area < min_cluster_area or cw <= 30 or ch <= 20:
+            continue
+        # Do not fill an edge-connected, poster-sized contour merely because
+        # many small text/icon edges were bridged together. That turns a valid
+        # flat field (notably black instruction sheets) into 100% foreground.
+        touches = int(x <= 1) + int(y <= 1) + int(x + cw >= w - 1) + int(y + ch >= h - 1)
+        if area > h * w * 0.72 and touches >= 3:
             continue
         if (x < 5 and cw < 40) or (x + cw > w - 5 and cw < 40):
             continue
