@@ -11,6 +11,7 @@ from .segment import segment_reference
 from .hard_vectorize import vectorize_hard_graphic
 from .panel_detect import run_phase24b
 from .vector_fit import fit_background_vectors
+from .phase24d import recover_hidden_background, run_phase24_acceptance_gate
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -76,6 +77,23 @@ def main() -> None:
     phase24c.add_argument("--max-panels", type=int, default=3)
     phase24c.add_argument("--complexity-penalty", type=float, default=0.06)
 
+    phase24d = sub.add_parser("recover-background", help="Phase 2.4D: continue fitted vector background through hidden regions")
+    phase24d.add_argument("image")
+    phase24d.add_argument("--background-known", required=True)
+    phase24d.add_argument("--phase24c-report", required=True)
+    phase24d.add_argument("-o", "--output-dir", required=True)
+
+    gate = sub.add_parser("accept-background", help="Run Phase 2.4 quantitative acceptance gate")
+    gate.add_argument("image")
+    gate.add_argument("--background-known", required=True)
+    gate.add_argument("--phase24c-report", required=True)
+    gate.add_argument("--svg", required=True)
+    gate.add_argument("-o", "--output-dir", required=True)
+    gate.add_argument("--max-mean-delta-e", type=float, default=12.0)
+    gate.add_argument("--max-rgb-mae", type=float, default=18.0)
+    gate.add_argument("--min-ssim", type=float, default=0.82)
+    gate.add_argument("--max-boundary-error", type=float, default=0.035)
+
     hard = sub.add_parser("hard-vectorize", help="Vectorize a hard-edged logo, icon, badge or flat graphic into editable SVG paths")
     hard.add_argument("image")
     hard.add_argument("-o", "--output", required=True)
@@ -97,49 +115,22 @@ def main() -> None:
         result = normalize_reference(args.image, args.output, rotation=args.rotation, corners=_parse_corners(args.corners))
         print(Path(args.output) / result["normalized_path"])
     elif args.command == "segment":
-        result = segment_reference(
-            args.job_dir,
-            image_path=args.image,
-            mode=args.mode,
-            birefnet_model=args.birefnet_model,
-            sam2_model=args.sam2_model,
-            sam2_config=args.sam2_config,
-            sam2_checkpoint=args.sam2_checkpoint,
-            device=args.device,
-            manual_foreground_mask=args.manual_foreground_mask,
-        )
+        result = segment_reference(args.job_dir, image_path=args.image, mode=args.mode, birefnet_model=args.birefnet_model, sam2_model=args.sam2_model, sam2_config=args.sam2_config, sam2_checkpoint=args.sam2_checkpoint, device=args.device, manual_foreground_mask=args.manual_foreground_mask)
         print(Path(args.job_dir) / result["outputs"]["background_known"])
     elif args.command == "detect-panels":
-        result = run_phase24b(
-            args.job_dir,
-            image_path=args.image,
-            background_known_path=args.background_known,
-            output_dir=args.output_dir,
-            max_panels=args.max_panels,
-        )
+        result = run_phase24b(args.job_dir, image_path=args.image, background_known_path=args.background_known, output_dir=args.output_dir, max_panels=args.max_panels)
         print(result["outputs"]["report"])
     elif args.command == "fit-background":
-        result = fit_background_vectors(
-            args.image,
-            args.background_known,
-            args.output_dir,
-            phase24b_report_path=args.phase24b_report,
-            max_panels=args.max_panels,
-            complexity_penalty=args.complexity_penalty,
-        )
+        result = fit_background_vectors(args.image, args.background_known, args.output_dir, phase24b_report_path=args.phase24b_report, max_panels=args.max_panels, complexity_penalty=args.complexity_penalty)
         print(result["outputs"]["report"])
+    elif args.command == "recover-background":
+        result = recover_hidden_background(args.image, args.background_known, args.phase24c_report, args.output_dir)
+        print(result["outputs"]["report"])
+    elif args.command == "accept-background":
+        result = run_phase24_acceptance_gate(args.image, args.background_known, args.phase24c_report, args.svg, args.output_dir, max_mean_delta_e=args.max_mean_delta_e, max_rgb_mae=args.max_rgb_mae, min_ssim=args.min_ssim, max_boundary_error=args.max_boundary_error)
+        print(result["report"])
     elif args.command == "hard-vectorize":
-        result = vectorize_hard_graphic(
-            args.image,
-            args.output,
-            mask_path=args.mask,
-            report_path=args.report,
-            colors=args.colors,
-            min_area=args.min_area,
-            simplify=args.simplify,
-            cleanup_radius=args.cleanup_radius,
-            backend=args.backend,
-        )
+        result = vectorize_hard_graphic(args.image, args.output, mask_path=args.mask, report_path=args.report, colors=args.colors, min_area=args.min_area, simplify=args.simplify, cleanup_radius=args.cleanup_radius, backend=args.backend)
         print(result["outputs"]["svg"])
 
 
