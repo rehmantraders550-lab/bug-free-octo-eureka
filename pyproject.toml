@@ -14,6 +14,7 @@ dependencies = [
   "opencv-python>=4.9",
   "scipy>=1.11",
   "scikit-image>=0.22",
+  "pikepdf>=9.0",
 ]
 
 [project.scripts]
