@@ -69,7 +69,14 @@ jobs:
       - name: Install system renderers and validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends inkscape ghostscript qpdf tesseract-ocr
+          sudo apt-get install -y --no-install-recommends inkscape ghostscript qpdf tesseract-ocr curl xz-utils
+          mkdir -p /tmp/pdfcpu-dist
+          curl -fsSL -o /tmp/pdfcpu.tar.xz https://github.com/pdfcpu/pdfcpu/releases/download/v0.15.0/pdfcpu_0.15.0_Linux_x86_64.tar.xz
+          tar -xJf /tmp/pdfcpu.tar.xz -C /tmp/pdfcpu-dist
+          PDFCPU_BIN="$(find /tmp/pdfcpu-dist -type f -name pdfcpu | head -n 1)"
+          test -n "$PDFCPU_BIN"
+          sudo install -m 0755 "$PDFCPU_BIN" /usr/local/bin/pdfcpu
+          pdfcpu version
 
       - name: Install package
         run: |
@@ -145,6 +152,15 @@ jobs:
           assert report['truth_policy']['photography_never_claimed_as_vector'] is True
           preflight=json.loads(Path('ci-output/job/delivery/preflight_report.json').read_text())
           assert preflight['svg']['passed'] is True
+          assert preflight['tools']['ghostscript'] is True
+          assert preflight['tools']['qpdf'] is True
+          assert preflight['tools']['pdfcpu'] is True
+          assert preflight['tool_checks']['ghostscript'] is True
+          assert preflight['tool_checks']['qpdf'] is True
+          assert preflight['tool_checks']['pdfcpu'] is True
+          assert preflight['pdfcpu_policy'].startswith("Use pdfcpu's official default relaxed validation")
           PY
           gs -q -dNOPAUSE -dBATCH -sDEVICE=nullpage ci-output/job/delivery/artwork_press.pdf
           qpdf --check ci-output/job/delivery/artwork_press.pdf
+          pdfcpu validate ci-output/job/delivery/artwork_press.pdf
+          pdfcpu validate -mode strict ci-output/job/delivery/artwork_press.pdf || true
