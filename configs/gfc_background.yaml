@@ -1,0 +1,126 @@
+metadata:
+  title: GFC TurboWash background reconstruction
+  description: Compact editable approximation inferred from photographed poster artwork
+
+canvas:
+  width: 1000
+  height: 1400
+  radius: 42
+
+linear_gradients:
+  - id: baseBlue
+    x1: 0
+    y1: 0
+    x2: 1000
+    y2: 1400
+    stops:
+      - {offset: "0%", color: "#3557A8"}
+      - {offset: "24%", color: "#67A9D9"}
+      - {offset: "49%", color: "#B8DEF1"}
+      - {offset: "72%", color: "#70AFE0"}
+      - {offset: "100%", color: "#2469C9"}
+
+  - id: upperPlane
+    x1: 50
+    y1: 240
+    x2: 900
+    y2: 560
+    stops:
+      - {offset: "0%", color: "#93CBEA", opacity: 0.12}
+      - {offset: "48%", color: "#D8F2FF", opacity: 0.56}
+      - {offset: "100%", color: "#B3DDF2", opacity: 0.16}
+
+  - id: centerPlane
+    x1: 0
+    y1: 640
+    x2: 1000
+    y2: 820
+    stops:
+      - {offset: "0%", color: "#DFF6FF", opacity: 0.50}
+      - {offset: "55%", color: "#EAF9FF", opacity: 0.72}
+      - {offset: "100%", color: "#BEE5F7", opacity: 0.30}
+
+  - id: lowerPlane
+    x1: 80
+    y1: 1060
+    x2: 960
+    y2: 1300
+    stops:
+      - {offset: "0%", color: "#5DA8DD", opacity: 0.20}
+      - {offset: "55%", color: "#347ED6", opacity: 0.34}
+      - {offset: "100%", color: "#1D58BA", opacity: 0.54}
+
+radial_gradients:
+  - id: topLeftShade
+    cx: 130
+    cy: 90
+    r: 460
+    stops:
+      - {offset: "0%", color: "#243E91", opacity: 0.70}
+      - {offset: "55%", color: "#385BB1", opacity: 0.30}
+      - {offset: "100%", color: "#385BB1", opacity: 0}
+
+  - id: centerGlow
+    cx: 510
+    cy: 655
+    r: 470
+    stops:
+      - {offset: "0%", color: "#FFFFFF", opacity: 0.32}
+      - {offset: "55%", color: "#DDF6FF", opacity: 0.16}
+      - {offset: "100%", color: "#DDF6FF", opacity: 0}
+
+  - id: bottomRightShade
+    cx: 930
+    cy: 1320
+    r: 520
+    stops:
+      - {offset: "0%", color: "#1254B7", opacity: 0.72}
+      - {offset: "65%", color: "#236CCC", opacity: 0.24}
+      - {offset: "100%", color: "#236CCC", opacity: 0}
+
+base:
+  gradient: baseBlue
+
+layers:
+  - type: rect
+    x: 0
+    y: 0
+    width: 1000
+    height: 1400
+    fill: "url(#topLeftShade)"
+
+  - type: polygon
+    points: [[0, 430], [1000, 320], [1000, 570], [0, 690]]
+    fill: "url(#upperPlane)"
+    opacity: 1
+
+  - type: polygon
+    points: [[0, 650], [1000, 520], [1000, 930], [0, 1030]]
+    fill: "url(#centerPlane)"
+    opacity: 1
+
+  - type: rect
+    x: 0
+    y: 0
+    width: 1000
+    height: 1400
+    fill: "url(#centerGlow)"
+
+  - type: polygon
+    points: [[0, 1040], [1000, 920], [1000, 1400], [0, 1400]]
+    fill: "url(#lowerPlane)"
+    opacity: 1
+
+  - type: rect
+    x: 0
+    y: 0
+    width: 1000
+    height: 1400
+    fill: "url(#bottomRightShade)"
+
+texture:
+  spacing: 16
+  angle: 17
+  opacity: 0.07
+  color: "#FFFFFF"
+  stroke_width: 1.4
