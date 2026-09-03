@@ -1,0 +1,4 @@
+Pillow>=10.0
+numpy>=1.26
+PyYAML>=6.0
+opencv-python>=4.9
