@@ -72,6 +72,11 @@ def main() -> None:
 
     p=sub.add_parser("deliver",help="One arbitrary reference image to complete editable SVG/PDF/preflight delivery package")
     p.add_argument("image"); p.add_argument("-o","--output",required=True,help="Job directory"); p.add_argument("--max-panels",type=int,default=4); p.add_argument("--ocr-confidence",type=float,default=80.0)
+    p.add_argument("--trim-width-mm",type=float,default=None,help="Production trim width in millimetres. Supply width and/or height for press-ready status.")
+    p.add_argument("--trim-height-mm",type=float,default=None,help="Production trim height in millimetres. Missing dimension is derived from source aspect ratio.")
+    p.add_argument("--bleed-mm",type=float,default=3.0,help="Bleed on each edge in millimetres; default 3 mm.")
+    p.add_argument("--target-ppi",type=float,default=300.0,help="Minimum target raster resolution used when physical size is not supplied.")
+    p.add_argument("--icc-profile",default=None,help="Optional CMYK ICC output profile path. FOGRA39/default CMYK profiles are auto-discovered when omitted.")
 
     args=parser.parse_args()
     if args.command=="prepare": print(run_blocks_1_to_4(args.image,args.output,max_panels=args.max_panels)["outputs"]["manifest"])
@@ -85,7 +90,11 @@ def main() -> None:
     elif args.command=="accept-background": print(run_phase24_acceptance_gate(args.image,args.background_known,args.phase24c_report,args.svg,args.output_dir,max_mean_delta_e=args.max_mean_delta_e,max_rgb_mae=args.max_rgb_mae,min_ssim=args.min_ssim,max_boundary_error=args.max_boundary_error)["report"])
     elif args.command=="hard-vectorize": print(vectorize_hard_graphic(args.image,args.output,mask_path=args.mask,report_path=args.report,colors=args.colors,min_area=args.min_area,simplify=args.simplify,cleanup_radius=args.cleanup_radius,backend=args.backend)["outputs"]["svg"])
     elif args.command=="semantic-vectorize": print(reconstruct_semantic_primitives(args.image,args.output,mask_path=args.mask,report_path=args.report,colors=args.colors,min_area=args.min_area,simplify=args.simplify,cleanup_radius=args.cleanup_radius)["outputs"]["svg"])
-    elif args.command=="deliver": print(run_delivery_pipeline(args.image,args.output,max_panels=args.max_panels,ocr_confidence=args.ocr_confidence)["outputs"]["master_svg"])
+    elif args.command=="deliver": print(run_delivery_pipeline(
+        args.image,args.output,max_panels=args.max_panels,ocr_confidence=args.ocr_confidence,
+        trim_width_mm=args.trim_width_mm,trim_height_mm=args.trim_height_mm,bleed_mm=args.bleed_mm,
+        target_ppi=args.target_ppi,icc_profile=args.icc_profile,
+    )["outputs"]["master_svg"])
 
 
 if __name__=="__main__": main()
