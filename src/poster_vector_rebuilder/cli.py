@@ -8,6 +8,7 @@ from .svg_builder import save_svg
 from .analyze import save_analysis
 from .normalize import normalize_reference
 from .segment import segment_reference
+from .hard_vectorize import vectorize_hard_graphic
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -91,6 +92,35 @@ def main() -> None:
         help="Optional binary mask to force additional pixels into foreground exclusion",
     )
 
+    hard = sub.add_parser(
+        "hard-vectorize",
+        help="Vectorize a hard-edged logo, icon, badge or flat graphic into editable SVG paths",
+    )
+    hard.add_argument("image", help="Raster asset or normalized reference")
+    hard.add_argument("-o", "--output", required=True, help="Output SVG path")
+    hard.add_argument("--mask", default=None, help="Optional binary mask selecting only this graphic")
+    hard.add_argument("--report", default=None, help="Optional JSON reconstruction report path")
+    hard.add_argument("--colors", type=int, default=8, help="Maximum deterministic palette size")
+    hard.add_argument("--min-area", type=float, default=6.0, help="Reject contours smaller than this pixel area")
+    hard.add_argument(
+        "--simplify",
+        type=float,
+        default=0.0025,
+        help="Polygon simplification as a fraction of contour perimeter",
+    )
+    hard.add_argument(
+        "--cleanup-radius",
+        type=int,
+        default=0,
+        help="Optional morphology radius for speckle/edge cleanup; 0 preserves measured edges",
+    )
+    hard.add_argument(
+        "--backend",
+        choices=["auto", "opencv", "vtracer"],
+        default="auto",
+        help="Auto prefers VTracer when installed and otherwise uses deterministic OpenCV tracing",
+    )
+
     args = parser.parse_args()
 
     if args.command == "build":
@@ -120,6 +150,19 @@ def main() -> None:
             manual_foreground_mask=args.manual_foreground_mask,
         )
         print(Path(args.job_dir) / result["outputs"]["background_known"])
+    elif args.command == "hard-vectorize":
+        result = vectorize_hard_graphic(
+            args.image,
+            args.output,
+            mask_path=args.mask,
+            report_path=args.report,
+            colors=args.colors,
+            min_area=args.min_area,
+            simplify=args.simplify,
+            cleanup_radius=args.cleanup_radius,
+            backend=args.backend,
+        )
+        print(result["outputs"]["svg"])
 
 
 if __name__ == "__main__":
