@@ -14,10 +14,11 @@ def _load_rgb(path: str | Path) -> np.ndarray:
 
 
 def classify_artwork(image_path: str | Path, output_path: str | Path | None = None) -> dict:
-    """Classify a normalized raster into broad reconstruction routes.
+    """Classify a normalized raster into conservative reconstruction routes.
 
-    This classifier intentionally uses generic image statistics only. It does not
-    assume any brand colour, poster family, or GFC-specific composition.
+    The classifier is deliberately biased toward truthful raster fallback when a
+    scene combines substantial edge density, local texture and palette complexity.
+    That prevents richly detailed photographs from being mistaken for flat vector art.
     """
     image_path = Path(image_path)
     rgb = _load_rgb(image_path)
@@ -47,27 +48,41 @@ def classify_artwork(image_path: str | Path, output_path: str | Path | None = No
     quant_error = float(np.sqrt(compactness / max(len(pixels), 1)))
     palette = np.clip(np.rint(centers), 0, 255).astype(np.uint8).tolist()
 
-    # Broad routing scores, not semantic truth.
+    # A coarse 5-bit palette occupancy measure distinguishes photographic tonal
+    # variation from compact flat-art palettes without assuming any subject class.
+    quant5 = (thumb // 8).reshape(-1, 3)
+    palette_occupancy = float(len(np.unique(quant5, axis=0)) / max(len(quant5), 1))
+
     hard_score = float(np.clip(0.58 * (edge_density / 0.18) + 0.42 * (18.0 / max(quant_error, 1.0)), 0, 1))
     smooth_score = float(np.clip(0.62 * smooth_fraction + 0.38 * (1.0 - min(edge_density / 0.28, 1.0)), 0, 1))
-    photo_score = float(np.clip(0.55 * min(texture / 18.0, 1.0) + 0.45 * min(quant_error / 28.0, 1.0), 0, 1))
+    photo_score = float(np.clip(0.45 * min(texture / 18.0, 1.0) + 0.35 * min(quant_error / 28.0, 1.0) + 0.20 * min(palette_occupancy / 0.035, 1.0), 0, 1))
 
-    if smooth_score >= hard_score and smooth_score >= photo_score:
-        primary = "smooth_composite"
-    elif hard_score >= photo_score:
-        primary = "hard_graphic_composite"
-    else:
+    # Safety override for real-world scenes: detailed photographs can also contain
+    # many hard edges, so hard_score alone must never dominate this evidence.
+    complex_scene = bool(
+        edge_density >= 0.075
+        and texture >= 7.0
+        and quant_error >= 10.0
+        and palette_occupancy >= 0.018
+    )
+
+    if complex_scene or photo_score >= max(hard_score, smooth_score):
         primary = "mixed_or_photographic"
+    elif smooth_score >= hard_score:
+        primary = "smooth_composite"
+    else:
+        primary = "hard_graphic_composite"
 
+    photographic = primary == "mixed_or_photographic"
     routes = {
-        "background_gradient_fit": smooth_score >= 0.42,
-        "panel_detection": edge_density >= 0.035 and smooth_score >= 0.28,
-        "hard_graphic_vectorization": hard_score >= 0.42,
-        "photographic_fallback_possible": photo_score >= 0.62,
+        "background_gradient_fit": smooth_score >= 0.42 and not photographic,
+        "panel_detection": edge_density >= 0.035 and smooth_score >= 0.28 and not photographic,
+        "hard_graphic_vectorization": hard_score >= 0.42 and not photographic,
+        "photographic_fallback_possible": photographic,
     }
 
     result = {
-        "schema": "poster-vector-rebuilder.artwork-classification.v1",
+        "schema": "poster-vector-rebuilder.artwork-classification.v2",
         "image": str(image_path),
         "dimensions": [w, h],
         "primary_class": primary,
@@ -81,10 +96,12 @@ def classify_artwork(image_path: str | Path, output_path: str | Path | None = No
             "mean_local_lab_residual": round(texture, 6),
             "smooth_fraction": round(smooth_fraction, 6),
             "palette_quantization_rmse": round(quant_error, 6),
+            "five_bit_palette_occupancy": round(palette_occupancy, 6),
+            "complex_scene_override": complex_scene,
             "sample_palette_rgb": palette,
         },
         "routes": routes,
-        "note": "This is a generic routing classifier. It does not assume a specific brand, colour family, poster template, or artwork type.",
+        "note": "Generic conservative routing. Detailed mixed/photographic scenes are kept out of flat hard-graphic vectorization unless later region-level analysis proves vector-safe content.",
     }
     if output_path is not None:
         output_path = Path(output_path)
