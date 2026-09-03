@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poster-vector-rebuilder"
+version = "0.1.0"
+description = "Config-driven reconstruction of photographed poster backgrounds as editable SVG"
+requires-python = ">=3.10"
+dependencies = [
+  "Pillow>=10.0",
+  "numpy>=1.26",
+  "PyYAML>=6.0",
+  "opencv-python>=4.9",
+]
+
+[project.scripts]
+poster-vector = "poster_vector_rebuilder.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
