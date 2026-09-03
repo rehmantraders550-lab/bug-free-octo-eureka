@@ -9,6 +9,7 @@ from .analyze import save_analysis
 from .normalize import normalize_reference
 from .segment import segment_reference
 from .hard_vectorize import vectorize_hard_graphic
+from .panel_detect import run_phase24b
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -92,6 +93,33 @@ def main() -> None:
         help="Optional binary mask to force additional pixels into foreground exclusion",
     )
 
+    phase24b = sub.add_parser(
+        "detect-panels",
+        help="Phase 2.4B: detect background panel boundaries and optimize geometry from authoritative pixels",
+    )
+    phase24b.add_argument("job_dir", help="Existing normalized/segmented job directory")
+    phase24b.add_argument(
+        "--image",
+        default=None,
+        help="Optional normalized reference override; defaults to JOB/work/normalized_reference.png",
+    )
+    phase24b.add_argument(
+        "--background-known",
+        default=None,
+        help="Optional authoritative background mask override; defaults to JOB/masks/background_known.png",
+    )
+    phase24b.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional output directory; defaults to JOB/background/phase24b",
+    )
+    phase24b.add_argument(
+        "--max-panels",
+        type=int,
+        default=3,
+        help="Maximum panel count included in model selection",
+    )
+
     hard = sub.add_parser(
         "hard-vectorize",
         help="Vectorize a hard-edged logo, icon, badge or flat graphic into editable SVG paths",
@@ -150,6 +178,15 @@ def main() -> None:
             manual_foreground_mask=args.manual_foreground_mask,
         )
         print(Path(args.job_dir) / result["outputs"]["background_known"])
+    elif args.command == "detect-panels":
+        result = run_phase24b(
+            args.job_dir,
+            image_path=args.image,
+            background_known_path=args.background_known,
+            output_dir=args.output_dir,
+            max_panels=args.max_panels,
+        )
+        print(result["outputs"]["report"])
     elif args.command == "hard-vectorize":
         result = vectorize_hard_graphic(
             args.image,
