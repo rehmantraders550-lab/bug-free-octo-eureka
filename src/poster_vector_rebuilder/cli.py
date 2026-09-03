@@ -7,6 +7,7 @@ import yaml
 from .svg_builder import save_svg
 from .analyze import save_analysis
 from .normalize import normalize_reference
+from .segment import segment_reference
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -55,6 +56,41 @@ def main() -> None:
         help="Optional deterministic corner override: x,y;x,y;x,y;x,y. Any order is accepted.",
     )
 
+    segment = sub.add_parser(
+        "segment",
+        help="Create foreground exclusion masks and authoritative background-confidence masks",
+    )
+    segment.add_argument("job_dir", help="Existing normalized job directory")
+    segment.add_argument(
+        "--image",
+        default=None,
+        help="Optional normalized image override; defaults to JOB/work/normalized_reference.png",
+    )
+    segment.add_argument(
+        "--mode",
+        choices=["precision", "detail"],
+        default="precision",
+        help="Precision is conservative and recommended for background fitting",
+    )
+    segment.add_argument(
+        "--birefnet-model",
+        default=None,
+        help="Optional local/HuggingFace BiRefNet model source",
+    )
+    segment.add_argument(
+        "--sam2-model",
+        default=None,
+        help="Optional SAM2 HuggingFace model identifier",
+    )
+    segment.add_argument("--sam2-config", default=None, help="Optional local SAM2 model config")
+    segment.add_argument("--sam2-checkpoint", default=None, help="Optional local SAM2 checkpoint")
+    segment.add_argument("--device", default=None, help="Optional torch device, e.g. cuda or cpu")
+    segment.add_argument(
+        "--manual-foreground-mask",
+        default=None,
+        help="Optional binary mask to force additional pixels into foreground exclusion",
+    )
+
     args = parser.parse_args()
 
     if args.command == "build":
@@ -71,6 +107,19 @@ def main() -> None:
             corners=_parse_corners(args.corners),
         )
         print(Path(args.output) / result["normalized_path"])
+    elif args.command == "segment":
+        result = segment_reference(
+            args.job_dir,
+            image_path=args.image,
+            mode=args.mode,
+            birefnet_model=args.birefnet_model,
+            sam2_model=args.sam2_model,
+            sam2_config=args.sam2_config,
+            sam2_checkpoint=args.sam2_checkpoint,
+            device=args.device,
+            manual_foreground_mask=args.manual_foreground_mask,
+        )
+        print(Path(args.job_dir) / result["outputs"]["background_known"])
 
 
 if __name__ == "__main__":
