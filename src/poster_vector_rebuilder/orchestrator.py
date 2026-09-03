@@ -46,8 +46,30 @@ def _photographic_asset(image_path, foreground_path, output_path):
     return output_path
 
 
-def run_delivery_pipeline(input_path: str | Path, job_dir: str | Path, *, max_panels: int=4, ocr_confidence: float=80.0) -> dict:
-    """One-command arbitrary reference image -> complete editable delivery package."""
+def _full_scene_asset(image_path, output_path):
+    Path(output_path).parent.mkdir(parents=True,exist_ok=True)
+    Image.open(image_path).convert("RGB").save(output_path,optimize=True)
+    return output_path
+
+
+def run_delivery_pipeline(
+    input_path: str | Path,
+    job_dir: str | Path,
+    *,
+    max_panels: int=4,
+    ocr_confidence: float=80.0,
+    trim_width_mm: float | None=None,
+    trim_height_mm: float | None=None,
+    bleed_mm: float=3.0,
+    target_ppi: float=300.0,
+    icc_profile: str | Path | None=None,
+) -> dict:
+    """One-command arbitrary reference image -> editable delivery package.
+
+    Detailed photographic scenes are preserved as an explicitly declared raster scene.
+    OCR is still reported, but is not overlaid unless the raster lettering can be removed
+    without damaging source pixels. This avoids duplicate/ghost lettering.
+    """
     job=Path(job_dir); delivery=job/"delivery"; assets=delivery/"assets"
     delivery.mkdir(parents=True,exist_ok=True); assets.mkdir(parents=True,exist_ok=True)
     stages={}
@@ -59,13 +81,19 @@ def run_delivery_pipeline(input_path: str | Path, job_dir: str | Path, *, max_pa
     stages["text"]=text
     semantic_mask=masks/"semantic_foreground.png"
     semantic_pixels=_semantic_mask(masks/"foreground_mask.png",masks/"text_exclusion.png",semantic_mask)
-    semantic_svg=None; photo_href=None
+    semantic_svg=None; photo_href=None; text_svg_for_assembly=text["outputs"]["svg"]
     cleanup_policy={"min_area":10.0,"simplify":0.003,"cleanup_radius":0,"node_budget":12000}
+    photographic=classification["primary_class"]=="mixed_or_photographic" and classification["routes"].get("photographic_fallback_possible")
 
-    if classification["routes"].get("photographic_fallback_possible") and classification["primary_class"]=="mixed_or_photographic":
-        photo=assets/"photographic_foreground.png"; _photographic_asset(normalized,semantic_mask,photo)
-        photo_href="assets/photographic_foreground.png"
-        stages["foreground"]={"mode":"raster_photographic_fallback","asset":str(photo),"semantic_pixels":semantic_pixels,"reason":"classifier identified photographic/mixed content; not claimed as vector; high-confidence OCR text excluded from raster alpha"}
+    if photographic:
+        photo=assets/"photographic_scene.png"; _full_scene_asset(normalized,photo)
+        photo_href="assets/photographic_scene.png"
+        text_svg_for_assembly=None
+        stages["foreground"]={
+            "mode":"full_scene_raster_photographic_fallback","asset":str(photo),"semantic_pixels":semantic_pixels,
+            "reason":"classifier identified detailed mixed/photographic content; source scene preserved without pretending soft lighting, texture or depth are vector geometry",
+            "ocr_overlay_policy":"suppressed to prevent duplicate/ghost source lettering; OCR remains available in the reconstruction report",
+        }
     elif semantic_pixels>0:
         try:
             sem=reconstruct_semantic_primitives(normalized,job/"vectors"/"semantic.svg",mask_path=semantic_mask,report_path=meta/"semantic_primitives.json",colors=12,min_area=cleanup_policy["min_area"],simplify=cleanup_policy["simplify"],cleanup_radius=cleanup_policy["cleanup_radius"])
@@ -79,26 +107,32 @@ def run_delivery_pipeline(input_path: str | Path, job_dir: str | Path, *, max_pa
     stages["hard_graphic_cleanup"]={"status":"applied","policy":cleanup_policy,"note":"semantic contours are simplified before SVG emission; morphology is disabled by default to preserve authoritative visible boundaries"}
 
     bg_dir=job/"background_fit"; bg_svg=None
-    try:
-        fit=fit_background_vectors(normalized,masks/"background_known.png",bg_dir,phase24b_report_path=prep["outputs"].get("panel_report"),max_panels=max_panels)
-        stages["background_fit"]=fit; bg_svg=fit["outputs"]["svg"]
-        recovery=recover_hidden_background(normalized,masks/"background_known.png",fit["outputs"]["report"],job/"background_recovery"); stages["background_recovery"]=recovery
-        gate=run_phase24_acceptance_gate(normalized,masks/"background_known.png",fit["outputs"]["report"],bg_svg,job/"background_acceptance"); stages["background_acceptance"]=gate
-    except Exception as exc:
-        bg_svg=str(job/"background_fit"/"background_fallback.svg")
-        stages["background_fit"]=_flat_background(normalized,masks/"background_known.png",bg_svg)
-        stages["background_fit"]["error"]=f"{type(exc).__name__}: {exc}"
+    if photographic:
+        stages["background_fit"]={"status":"skipped","reason":"full photographic scene is authoritative; a synthetic gradient background would reduce fidelity"}
+    else:
+        try:
+            fit=fit_background_vectors(normalized,masks/"background_known.png",bg_dir,phase24b_report_path=prep["outputs"].get("panel_report"),max_panels=max_panels)
+            stages["background_fit"]=fit; bg_svg=fit["outputs"]["svg"]
+            recovery=recover_hidden_background(normalized,masks/"background_known.png",fit["outputs"]["report"],job/"background_recovery"); stages["background_recovery"]=recovery
+            gate=run_phase24_acceptance_gate(normalized,masks/"background_known.png",fit["outputs"]["report"],bg_svg,job/"background_acceptance"); stages["background_acceptance"]=gate
+        except Exception as exc:
+            bg_svg=str(job/"background_fit"/"background_fallback.svg")
+            stages["background_fit"]=_flat_background(normalized,masks/"background_known.png",bg_svg)
+            stages["background_fit"]["error"]=f"{type(exc).__name__}: {exc}"
 
     with Image.open(normalized) as im: width,height=im.size
     master=delivery/"artwork_master.svg"
-    assembly=assemble_master_svg(master,width=width,height=height,background_svg=bg_svg,semantic_svg=semantic_svg,text_svg=text["outputs"]["svg"],photographic_href=photo_href,report_path=meta/"final_assembly.json")
+    assembly=assemble_master_svg(master,width=width,height=height,background_svg=bg_svg,semantic_svg=semantic_svg,text_svg=text_svg_for_assembly,photographic_href=photo_href,report_path=meta/"final_assembly.json")
     stages["assembly"]=assembly
-    prepress=export_prepress_package(master,delivery); stages["prepress"]=prepress
+    prepress=export_prepress_package(
+        master,delivery,trim_width_mm=trim_width_mm,trim_height_mm=trim_height_mm,
+        bleed_mm=bleed_mm,target_ppi=target_ppi,icc_profile=icc_profile,
+    ); stages["prepress"]=prepress
     report={
-        "schema":"poster-vector-delivery-v1",
-        "status":"complete" if prepress["passed"] else "complete_with_preflight_warnings",
+        "schema":"poster-vector-delivery-v2",
+        "status":"complete" if prepress.get("press_ready") else "complete_with_preflight_warnings",
         "source":str(input_path),"classification":classification,"stages":stages,
-        "truth_policy":{"visible_source_pixels_authoritative":True,"hidden_background_inference_lower_confidence":True,"photography_never_claimed_as_vector":True,"exact_font_never_guessed":True},
+        "truth_policy":{"visible_source_pixels_authoritative":True,"hidden_background_inference_lower_confidence":True,"photography_never_claimed_as_vector":True,"exact_font_never_guessed":True,"duplicate_text_avoided_on_photographic_fallback":True},
         "outputs":{"master_svg":str(master),"editable_pdf":prepress["outputs"]["editable_pdf"],"press_pdf":prepress["outputs"]["press_pdf"],"proof":prepress["outputs"]["proof"],"preflight":prepress["outputs"]["report"],"report":str(delivery/"reconstruction_report.json")},
     }
     Path(report["outputs"]["report"]).write_text(json.dumps(report,indent=2),encoding="utf-8")
