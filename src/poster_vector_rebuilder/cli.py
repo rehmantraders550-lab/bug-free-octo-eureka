@@ -10,6 +10,7 @@ from .normalize import normalize_reference
 from .segment import segment_reference
 from .hard_vectorize import vectorize_hard_graphic
 from .panel_detect import run_phase24b
+from .vector_fit import fit_background_vectors
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -46,124 +47,54 @@ def main() -> None:
     normalize = sub.add_parser("normalize", help="Preserve and geometrically normalize a photographed reference")
     normalize.add_argument("image")
     normalize.add_argument("-o", "--output", required=True, help="Job directory")
-    normalize.add_argument(
-        "--rotation",
-        choices=["keep", "90cw", "90ccw", "180"],
-        default="keep",
-        help="Rotation applied after perspective rectification",
-    )
-    normalize.add_argument(
-        "--corners",
-        default=None,
-        help="Optional deterministic corner override: x,y;x,y;x,y;x,y. Any order is accepted.",
-    )
+    normalize.add_argument("--rotation", choices=["keep", "90cw", "90ccw", "180"], default="keep")
+    normalize.add_argument("--corners", default=None, help="Optional deterministic corner override: x,y;x,y;x,y;x,y")
 
-    segment = sub.add_parser(
-        "segment",
-        help="Create foreground exclusion masks and authoritative background-confidence masks",
-    )
-    segment.add_argument("job_dir", help="Existing normalized job directory")
-    segment.add_argument(
-        "--image",
-        default=None,
-        help="Optional normalized image override; defaults to JOB/work/normalized_reference.png",
-    )
-    segment.add_argument(
-        "--mode",
-        choices=["precision", "detail"],
-        default="precision",
-        help="Precision is conservative and recommended for background fitting",
-    )
-    segment.add_argument(
-        "--birefnet-model",
-        default=None,
-        help="Optional local/HuggingFace BiRefNet model source",
-    )
-    segment.add_argument(
-        "--sam2-model",
-        default=None,
-        help="Optional SAM2 HuggingFace model identifier",
-    )
-    segment.add_argument("--sam2-config", default=None, help="Optional local SAM2 model config")
-    segment.add_argument("--sam2-checkpoint", default=None, help="Optional local SAM2 checkpoint")
-    segment.add_argument("--device", default=None, help="Optional torch device, e.g. cuda or cpu")
-    segment.add_argument(
-        "--manual-foreground-mask",
-        default=None,
-        help="Optional binary mask to force additional pixels into foreground exclusion",
-    )
+    segment = sub.add_parser("segment", help="Create foreground exclusion and authoritative background masks")
+    segment.add_argument("job_dir")
+    segment.add_argument("--image", default=None)
+    segment.add_argument("--mode", choices=["precision", "detail"], default="precision")
+    segment.add_argument("--birefnet-model", default=None)
+    segment.add_argument("--sam2-model", default=None)
+    segment.add_argument("--sam2-config", default=None)
+    segment.add_argument("--sam2-checkpoint", default=None)
+    segment.add_argument("--device", default=None)
+    segment.add_argument("--manual-foreground-mask", default=None)
 
-    phase24b = sub.add_parser(
-        "detect-panels",
-        help="Phase 2.4B: detect background panel boundaries and optimize geometry from authoritative pixels",
-    )
-    phase24b.add_argument("job_dir", help="Existing normalized/segmented job directory")
-    phase24b.add_argument(
-        "--image",
-        default=None,
-        help="Optional normalized reference override; defaults to JOB/work/normalized_reference.png",
-    )
-    phase24b.add_argument(
-        "--background-known",
-        default=None,
-        help="Optional authoritative background mask override; defaults to JOB/masks/background_known.png",
-    )
-    phase24b.add_argument(
-        "--output-dir",
-        default=None,
-        help="Optional output directory; defaults to JOB/background/phase24b",
-    )
-    phase24b.add_argument(
-        "--max-panels",
-        type=int,
-        default=3,
-        help="Maximum panel count included in model selection",
-    )
+    phase24b = sub.add_parser("detect-panels", help="Phase 2.4B: detect and optimize background panel geometry")
+    phase24b.add_argument("job_dir")
+    phase24b.add_argument("--image", default=None)
+    phase24b.add_argument("--background-known", default=None)
+    phase24b.add_argument("--output-dir", default=None)
+    phase24b.add_argument("--max-panels", type=int, default=3)
 
-    hard = sub.add_parser(
-        "hard-vectorize",
-        help="Vectorize a hard-edged logo, icon, badge or flat graphic into editable SVG paths",
-    )
-    hard.add_argument("image", help="Raster asset or normalized reference")
-    hard.add_argument("-o", "--output", required=True, help="Output SVG path")
-    hard.add_argument("--mask", default=None, help="Optional binary mask selecting only this graphic")
-    hard.add_argument("--report", default=None, help="Optional JSON reconstruction report path")
-    hard.add_argument("--colors", type=int, default=8, help="Maximum deterministic palette size")
-    hard.add_argument("--min-area", type=float, default=6.0, help="Reject contours smaller than this pixel area")
-    hard.add_argument(
-        "--simplify",
-        type=float,
-        default=0.0025,
-        help="Polygon simplification as a fraction of contour perimeter",
-    )
-    hard.add_argument(
-        "--cleanup-radius",
-        type=int,
-        default=0,
-        help="Optional morphology radius for speckle/edge cleanup; 0 preserves measured edges",
-    )
-    hard.add_argument(
-        "--backend",
-        choices=["auto", "opencv", "vtracer"],
-        default="auto",
-        help="Auto prefers VTracer when installed and otherwise uses deterministic OpenCV tracing",
-    )
+    phase24c = sub.add_parser("fit-background", help="Phase 2.4C: fit editable vector gradients/panels to authoritative pixels")
+    phase24c.add_argument("image")
+    phase24c.add_argument("--background-known", required=True)
+    phase24c.add_argument("-o", "--output-dir", required=True)
+    phase24c.add_argument("--phase24b-report", default=None)
+    phase24c.add_argument("--max-panels", type=int, default=3)
+    phase24c.add_argument("--complexity-penalty", type=float, default=0.06)
+
+    hard = sub.add_parser("hard-vectorize", help="Vectorize a hard-edged logo, icon, badge or flat graphic into editable SVG paths")
+    hard.add_argument("image")
+    hard.add_argument("-o", "--output", required=True)
+    hard.add_argument("--mask", default=None)
+    hard.add_argument("--report", default=None)
+    hard.add_argument("--colors", type=int, default=8)
+    hard.add_argument("--min-area", type=float, default=6.0)
+    hard.add_argument("--simplify", type=float, default=0.0025)
+    hard.add_argument("--cleanup-radius", type=int, default=0)
+    hard.add_argument("--backend", choices=["auto", "opencv", "vtracer"], default="auto")
 
     args = parser.parse_args()
 
     if args.command == "build":
-        out = save_svg(_load_yaml(args.config), args.output)
-        print(out)
+        print(save_svg(_load_yaml(args.config), args.output))
     elif args.command == "analyze":
-        out = save_analysis(args.image, args.output)
-        print(out)
+        print(save_analysis(args.image, args.output))
     elif args.command == "normalize":
-        result = normalize_reference(
-            args.image,
-            args.output,
-            rotation=args.rotation,
-            corners=_parse_corners(args.corners),
-        )
+        result = normalize_reference(args.image, args.output, rotation=args.rotation, corners=_parse_corners(args.corners))
         print(Path(args.output) / result["normalized_path"])
     elif args.command == "segment":
         result = segment_reference(
@@ -185,6 +116,16 @@ def main() -> None:
             background_known_path=args.background_known,
             output_dir=args.output_dir,
             max_panels=args.max_panels,
+        )
+        print(result["outputs"]["report"])
+    elif args.command == "fit-background":
+        result = fit_background_vectors(
+            args.image,
+            args.background_known,
+            args.output_dir,
+            phase24b_report_path=args.phase24b_report,
+            max_panels=args.max_panels,
+            complexity_penalty=args.complexity_penalty,
         )
         print(result["outputs"]["report"])
     elif args.command == "hard-vectorize":
