@@ -66,10 +66,10 @@ jobs:
             pyproject.toml
             requirements.txt
 
-      - name: Install system renderers
+      - name: Install system renderers and validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends inkscape ghostscript
+          sudo apt-get install -y --no-install-recommends inkscape ghostscript qpdf tesseract-ocr
 
       - name: Install package
         run: |
@@ -97,5 +97,54 @@ jobs:
           test -s ci-output/background.pdf
 
       - name: Validate PDF with Ghostscript
+        run: gs -q -dNOPAUSE -dBATCH -sDEVICE=nullpage ci-output/background.pdf
+
+      - name: Build arbitrary end-to-end reference fixture
         run: |
-          gs -q -dNOPAUSE -dBATCH -sDEVICE=nullpage ci-output/background.pdf
+          python - <<'PY'
+          from PIL import Image, ImageDraw
+          import numpy as np
+          w,h=480,320
+          x=np.linspace(0,1,w,dtype=np.float32)
+          a=np.array([235,241,247],dtype=np.float32); b=np.array([168,197,229],dtype=np.float32)
+          rgb=np.clip(a[None,None,:]*(1-x[None,:,None])+b[None,None,:]*x[None,:,None],0,255).astype(np.uint8)
+          rgb=np.repeat(rgb,h,axis=0)
+          im=Image.fromarray(rgb,'RGB'); d=ImageDraw.Draw(im)
+          d.rounded_rectangle((35,45,180,125),radius=18,fill=(26,76,145))
+          d.ellipse((300,45,390,135),fill=(210,52,62))
+          d.polygon([(225,180),(300,205),(260,275),(190,245)],fill=(33,146,93))
+          d.text((50,210),'VECTOR 2026',fill=(20,20,20))
+          im.save('ci-output/reference.png')
+          PY
+
+      - name: Run complete delivery pipeline
+        run: |
+          poster-vector deliver ci-output/reference.png -o ci-output/job
+          test -s ci-output/job/delivery/artwork_master.svg
+          test -s ci-output/job/delivery/artwork_editable.pdf
+          test -s ci-output/job/delivery/artwork_press.pdf
+          test -s ci-output/job/delivery/artwork_proof.png
+          test -s ci-output/job/delivery/preflight_report.json
+          test -s ci-output/job/delivery/reconstruction_report.json
+
+      - name: Validate final master and PDFs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          import json
+          svg=Path('ci-output/job/delivery/artwork_master.svg')
+          root=ET.parse(svg).getroot()
+          local=lambda t:t.rsplit('}',1)[-1]
+          layers={e.get('id') for e in root if local(e.tag)=='g'}
+          required={'00_BACKGROUND','10_HERO','20_BRAND','30_DECORATION','40_ICONS','90_PREPRESS'}
+          assert required.issubset(layers), layers
+          assert not any(local(e.tag) in {'foreignObject','flowRoot','flowPara','script'} for e in root.iter())
+          report=json.loads(Path('ci-output/job/delivery/reconstruction_report.json').read_text())
+          assert report['outputs']['master_svg'].endswith('artwork_master.svg')
+          assert report['truth_policy']['photography_never_claimed_as_vector'] is True
+          preflight=json.loads(Path('ci-output/job/delivery/preflight_report.json').read_text())
+          assert preflight['svg']['passed'] is True
+          PY
+          gs -q -dNOPAUSE -dBATCH -sDEVICE=nullpage ci-output/job/delivery/artwork_press.pdf
+          qpdf --check ci-output/job/delivery/artwork_press.pdf
