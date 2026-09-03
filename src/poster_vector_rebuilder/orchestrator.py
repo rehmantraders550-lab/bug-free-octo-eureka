@@ -63,17 +63,17 @@ def run_delivery_pipeline(input_path: str | Path, job_dir: str | Path, *, max_pa
     cleanup_policy={"min_area":10.0,"simplify":0.003,"cleanup_radius":0,"node_budget":12000}
 
     if classification["routes"].get("photographic_fallback_possible") and classification["primary_class"]=="mixed_or_photographic":
-        photo=assets/"photographic_foreground.png"; _photographic_asset(normalized,masks/"foreground_mask.png",photo)
+        photo=assets/"photographic_foreground.png"; _photographic_asset(normalized,semantic_mask,photo)
         photo_href="assets/photographic_foreground.png"
-        stages["foreground"]={"mode":"raster_photographic_fallback","asset":str(photo),"semantic_pixels":semantic_pixels,"reason":"classifier identified photographic/mixed content; not claimed as vector"}
+        stages["foreground"]={"mode":"raster_photographic_fallback","asset":str(photo),"semantic_pixels":semantic_pixels,"reason":"classifier identified photographic/mixed content; not claimed as vector; high-confidence OCR text excluded from raster alpha"}
     elif semantic_pixels>0:
         try:
             sem=reconstruct_semantic_primitives(normalized,job/"vectors"/"semantic.svg",mask_path=semantic_mask,report_path=meta/"semantic_primitives.json",colors=12,min_area=cleanup_policy["min_area"],simplify=cleanup_policy["simplify"],cleanup_radius=cleanup_policy["cleanup_radius"])
             semantic_svg=sem["outputs"]["svg"]; stages["foreground"]=sem
         except Exception as exc:
-            photo=assets/"photographic_foreground.png"; _photographic_asset(normalized,masks/"foreground_mask.png",photo)
+            photo=assets/"photographic_foreground.png"; _photographic_asset(normalized,semantic_mask,photo)
             photo_href="assets/photographic_foreground.png"
-            stages["foreground"]={"mode":"raster_fallback_after_semantic_failure","error":f"{type(exc).__name__}: {exc}","asset":str(photo)}
+            stages["foreground"]={"mode":"raster_fallback_after_semantic_failure","error":f"{type(exc).__name__}: {exc}","asset":str(photo),"note":"high-confidence OCR text excluded from raster alpha"}
     else:
         stages["foreground"]={"mode":"none","semantic_pixels":0}
     stages["hard_graphic_cleanup"]={"status":"applied","policy":cleanup_policy,"note":"semantic contours are simplified before SVG emission; morphology is disabled by default to preserve authoritative visible boundaries"}
