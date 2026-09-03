@@ -50,7 +50,7 @@ jobs:
         run: pytest -q
 
   vector-smoke:
-    name: SVG / PDF renderer smoke test
+    name: SVG / press PDF acceptance
     runs-on: ubuntu-latest
 
     steps:
@@ -69,7 +69,7 @@ jobs:
       - name: Install system renderers and validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends inkscape ghostscript qpdf tesseract-ocr curl xz-utils
+          sudo apt-get install -y --no-install-recommends inkscape ghostscript qpdf poppler-utils tesseract-ocr curl xz-utils
           mkdir -p /tmp/pdfcpu-dist
           curl -fsSL -o /tmp/pdfcpu.tar.xz https://github.com/pdfcpu/pdfcpu/releases/download/v0.15.0/pdfcpu_0.15.0_Linux_x86_64.tar.xz
           tar -xJf /tmp/pdfcpu.tar.xz -C /tmp/pdfcpu-dist
@@ -77,11 +77,13 @@ jobs:
           test -n "$PDFCPU_BIN"
           sudo install -m 0755 "$PDFCPU_BIN" /usr/local/bin/pdfcpu
           pdfcpu version
+          test -s /usr/share/color/icc/ghostscript/default_cmyk.icc
 
       - name: Install package
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .
+          python -c "import pikepdf; print('pikepdf', pikepdf.__version__)"
 
       - name: Build editable SVG fixture
         run: |
@@ -126,7 +128,7 @@ jobs:
 
       - name: Run complete delivery pipeline
         run: |
-          poster-vector deliver ci-output/reference.png -o ci-output/job
+          poster-vector deliver ci-output/reference.png -o ci-output/job --trim-width-mm 101.6 --bleed-mm 3 --target-ppi 300
           test -s ci-output/job/delivery/artwork_master.svg
           test -s ci-output/job/delivery/artwork_editable.pdf
           test -s ci-output/job/delivery/artwork_press.pdf
@@ -134,7 +136,7 @@ jobs:
           test -s ci-output/job/delivery/preflight_report.json
           test -s ci-output/job/delivery/reconstruction_report.json
 
-      - name: Validate final master and PDFs
+      - name: Validate final master and press PDF
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -151,16 +153,29 @@ jobs:
           assert report['outputs']['master_svg'].endswith('artwork_master.svg')
           assert report['truth_policy']['photography_never_claimed_as_vector'] is True
           preflight=json.loads(Path('ci-output/job/delivery/preflight_report.json').read_text())
+          assert preflight['passed'] is True, preflight
+          assert preflight['press_ready'] is True, preflight
           assert preflight['svg']['passed'] is True
+          assert preflight['pdf']['passed'] is True, preflight['pdf']
+          checks=preflight['pdf']['checks']
+          for name in ('pdf_version_at_least_1_6','media_bleed_trim_art_boxes_present','bleed_at_least_requested','output_intent_present','pdfx4_declared','device_rgb_absent','device_cmyk_present','raster_images_min_300_ppi','fonts_embedded'):
+              assert checks[name] is True, (name, checks)
+          assert preflight['geometry']['production_dimensions_confirmed'] is True
+          assert preflight['geometry']['bleed_mm'] >= 3.0
           assert preflight['tools']['ghostscript'] is True
           assert preflight['tools']['qpdf'] is True
           assert preflight['tools']['pdfcpu'] is True
+          assert preflight['tools']['pdfimages'] is True
+          assert preflight['tools']['pdffonts'] is True
+          assert preflight['tools']['pikepdf'] is True
           assert preflight['tool_checks']['ghostscript'] is True
           assert preflight['tool_checks']['qpdf'] is True
           assert preflight['tool_checks']['pdfcpu'] is True
-          assert preflight['pdfcpu_policy'].startswith("Use pdfcpu's official default relaxed validation")
           PY
           gs -q -dNOPAUSE -dBATCH -sDEVICE=nullpage ci-output/job/delivery/artwork_press.pdf
           qpdf --check ci-output/job/delivery/artwork_press.pdf
           pdfcpu validate ci-output/job/delivery/artwork_press.pdf
           pdfcpu validate -mode strict ci-output/job/delivery/artwork_press.pdf || true
+          pdfinfo -box ci-output/job/delivery/artwork_press.pdf
+          pdfimages -list ci-output/job/delivery/artwork_press.pdf
+          pdffonts ci-output/job/delivery/artwork_press.pdf
