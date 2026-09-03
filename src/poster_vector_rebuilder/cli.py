@@ -12,6 +12,7 @@ from .hard_vectorize import vectorize_hard_graphic
 from .panel_detect import run_phase24b
 from .vector_fit import fit_background_vectors
 from .phase24d import recover_hidden_background, run_phase24_acceptance_gate
+from .generalized_preflight import run_blocks_1_to_4
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -36,6 +37,11 @@ def _parse_corners(value: str | None):
 def main() -> None:
     parser = argparse.ArgumentParser(prog="poster-vector")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    prepare = sub.add_parser("prepare", help="Run generalized raster intake, artwork classification, foreground/background separation and panel detection")
+    prepare.add_argument("image")
+    prepare.add_argument("-o", "--output", required=True, help="Job directory")
+    prepare.add_argument("--max-panels", type=int, default=4)
 
     build = sub.add_parser("build", help="Build an editable SVG from a reconstruction YAML")
     build.add_argument("config")
@@ -107,7 +113,10 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == "build":
+    if args.command == "prepare":
+        result = run_blocks_1_to_4(args.image, args.output, max_panels=args.max_panels)
+        print(result["outputs"]["manifest"])
+    elif args.command == "build":
         print(save_svg(_load_yaml(args.config), args.output))
     elif args.command == "analyze":
         print(save_analysis(args.image, args.output))
