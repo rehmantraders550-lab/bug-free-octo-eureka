@@ -9,6 +9,7 @@ from .analyze import save_analysis
 from .normalize import normalize_reference
 from .segment import segment_reference
 from .hard_vectorize import vectorize_hard_graphic
+from .semantic_primitives import reconstruct_semantic_primitives
 from .panel_detect import run_phase24b
 from .vector_fit import fit_background_vectors
 from .phase24d import recover_hidden_background, run_phase24_acceptance_gate
@@ -111,6 +112,16 @@ def main() -> None:
     hard.add_argument("--cleanup-radius", type=int, default=0)
     hard.add_argument("--backend", choices=["auto", "opencv", "vtracer"], default="auto")
 
+    semantic = sub.add_parser("semantic-vectorize", help="Recover editable semantic SVG primitives before generic tracing")
+    semantic.add_argument("image")
+    semantic.add_argument("-o", "--output", required=True)
+    semantic.add_argument("--mask", default=None)
+    semantic.add_argument("--report", default=None)
+    semantic.add_argument("--colors", type=int, default=12)
+    semantic.add_argument("--min-area", type=float, default=10.0)
+    semantic.add_argument("--simplify", type=float, default=0.003)
+    semantic.add_argument("--cleanup-radius", type=int, default=0)
+
     args = parser.parse_args()
 
     if args.command == "prepare":
@@ -140,6 +151,9 @@ def main() -> None:
         print(result["report"])
     elif args.command == "hard-vectorize":
         result = vectorize_hard_graphic(args.image, args.output, mask_path=args.mask, report_path=args.report, colors=args.colors, min_area=args.min_area, simplify=args.simplify, cleanup_radius=args.cleanup_radius, backend=args.backend)
+        print(result["outputs"]["svg"])
+    elif args.command == "semantic-vectorize":
+        result = reconstruct_semantic_primitives(args.image, args.output, mask_path=args.mask, report_path=args.report, colors=args.colors, min_area=args.min_area, simplify=args.simplify, cleanup_radius=args.cleanup_radius)
         print(result["outputs"]["svg"])
 
 
