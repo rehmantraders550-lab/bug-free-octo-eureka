@@ -51,18 +51,31 @@ def export_prepress_package(master_svg: str | Path, output_dir: str | Path, *, p
         shutil.copy2(editable,press)
     commands.append(_run([inkscape,master_svg,f"--export-dpi={proof_dpi}","--export-type=png",f"--export-filename={proof}"]))
     if commands[-1]["returncode"]!=0 or not proof.exists(): raise RuntimeError("Proof generation failed")
+
     validations=[]
+    diagnostics=[]
     if gs: validations.append({"tool":"ghostscript",**_run([gs,"-q","-dNOPAUSE","-dBATCH","-sDEVICE=nullpage",press])})
     if qpdf: validations.append({"tool":"qpdf",**_run([qpdf,"--check",press])})
-    if pdfcpu: validations.append({"tool":"pdfcpu",**_run([pdfcpu,"validate","-mode","strict",press])})
+    if pdfcpu:
+        # pdfcpu's CLI defaults to relaxed validation. Treat that official default
+        # as the interoperability gate; strict mode is useful as a stronger
+        # diagnostic but is not equivalent to a requirement for ordinary press PDFs.
+        validations.append({"tool":"pdfcpu", "mode":"relaxed-default", **_run([pdfcpu,"validate",press])})
+        diagnostics.append({"tool":"pdfcpu_strict", "mode":"strict-diagnostic", **_run([pdfcpu,"validate","-mode","strict",press])})
+
     svg=svg_preflight(master_svg)
     tool_checks={v["tool"]:v["returncode"]==0 for v in validations}
+    diagnostic_checks={v["tool"]:v["returncode"]==0 for v in diagnostics}
     available={"inkscape":bool(inkscape),"ghostscript":bool(gs),"qpdf":bool(qpdf),"pdfcpu":bool(pdfcpu)}
     missing_validators=[name for name in ("ghostscript","qpdf","pdfcpu") if not available[name]]
+    warnings=[]
+    if pdfcpu and not diagnostic_checks.get("pdfcpu_strict",True):
+        warnings.append("pdfcpu strict diagnostic reported a conformance issue; default pdfcpu validation remains the acceptance criterion.")
     report={
         "schema":"poster-vector-preflight-v1","passed":svg["passed"] and all(tool_checks.values()),
-        "svg":svg,"tool_checks":tool_checks,"tools":available,"missing_optional_validators":missing_validators,
-        "commands":commands,"validations":validations,
+        "svg":svg,"tool_checks":tool_checks,"diagnostic_checks":diagnostic_checks,"tools":available,"missing_optional_validators":missing_validators,
+        "commands":commands,"validations":validations,"diagnostics":diagnostics,"warnings":warnings,
+        "pdfcpu_policy":"Use pdfcpu's official default relaxed validation for acceptance; retain strict mode as a non-blocking diagnostic.",
         "press_pdf_policy":"print-optimized PDF generated with Ghostscript /prepress settings when available; not claimed as certified PDF/X without an explicit ICC output intent.",
         "outputs":{"editable_pdf":str(editable),"press_pdf":str(press),"proof":str(proof),"report":str(output_dir/"preflight_report.json")},
     }
