@@ -28,3 +28,11 @@ def test_segment_reference_writes_confidence_masks(tmp_path: Path):
     assert result["ratios"]["foreground"] > 0
     for rel in result["outputs"].values():
         assert (job / rel).exists()
+
+
+def test_smooth_dark_field_is_not_inherently_foreground():
+    rgb = np.full((240, 320, 3), [26, 24, 23], dtype=np.uint8)
+    rgb[80:160, 100:220] = [220, 190, 105]
+    risk = deterministic_foreground_risk(rgb)
+    assert float(risk[15:65, 15:95].mean()) < 0.15
+    assert float(risk[90:150, 110:210].mean()) > float(risk[15:65, 15:95].mean())

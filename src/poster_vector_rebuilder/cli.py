@@ -8,6 +8,10 @@ from .svg_builder import save_svg
 from .analyze import save_analysis
 from .normalize import normalize_reference
 from .segment import segment_reference
+from .background import fit_background
+from .typography import recover_text
+from .assemble import assemble_artwork
+from .prepress import preflight_pdf
 
 
 def _load_yaml(path: str | Path) -> dict:
@@ -46,8 +50,8 @@ def main() -> None:
     normalize.add_argument("-o", "--output", required=True, help="Job directory")
     normalize.add_argument(
         "--rotation",
-        choices=["keep", "90cw", "90ccw", "180"],
-        default="keep",
+        choices=["auto", "keep", "90cw", "90ccw", "180"],
+        default="auto",
         help="Rotation applied after perspective rectification",
     )
     normalize.add_argument(
@@ -66,6 +70,33 @@ def main() -> None:
         default=None,
         help="Optional normalized image override; defaults to JOB/work/normalized_reference.png",
     )
+
+    background = sub.add_parser("background", help="Detect long panel boundaries and build a constrained editable background SVG")
+    background.add_argument("job_dir", help="Job containing work/normalized_reference.png and masks/background_known.png")
+    background.add_argument("--image", default=None, help="Optional normalized image override")
+    background.add_argument("--known-mask", default=None, help="Optional authoritative background mask override")
+
+    text = sub.add_parser("text", help="Recover OCR text as explicitly confidence-labelled editable text metadata")
+    text.add_argument("job_dir")
+    text.add_argument("--image", default=None)
+
+    assemble = sub.add_parser("assemble", help="Assemble restricted-primitive editable SVG layers")
+    assemble.add_argument("job_dir")
+
+    prepress = sub.add_parser("prepress", help="Export a vector PDF, Ghostscript proof and preflight report")
+    prepress.add_argument("job_dir")
+    prepress.add_argument("--trim-mm", default=None, help="Trim width,height in mm; required to certify production sizing")
+    prepress.add_argument("--bleed-mm", type=float, default=None)
+    prepress.add_argument("--icc-profile", default=None, help="ICC profile required for CMYK/PDF-X certification")
+
+    rebuild = sub.add_parser("rebuild", help="Run normalize, segment, constrained background, OCR, assembly and PDF preflight")
+    rebuild.add_argument("image")
+    rebuild.add_argument("-o", "--output", required=True, help="Job directory")
+    rebuild.add_argument("--rotation", choices=["auto", "keep", "90cw", "90ccw", "180"], default="auto")
+    rebuild.add_argument("--corners", default=None)
+    rebuild.add_argument("--trim-mm", default=None)
+    rebuild.add_argument("--bleed-mm", type=float, default=None)
+    rebuild.add_argument("--icc-profile", default=None)
     segment.add_argument(
         "--mode",
         choices=["precision", "detail"],
@@ -120,6 +151,32 @@ def main() -> None:
             manual_foreground_mask=args.manual_foreground_mask,
         )
         print(Path(args.job_dir) / result["outputs"]["background_known"])
+    elif args.command == "background":
+        result = fit_background(args.job_dir, image_path=args.image, known_mask_path=args.known_mask)
+        print(Path(args.job_dir) / result["outputs"]["svg"])
+    elif args.command == "text":
+        job = Path(args.job_dir)
+        result = recover_text(args.image or job / "work" / "normalized_reference.png", job / "analysis" / "text_layers.json")
+        print(Path(args.job_dir) / "analysis" / "text_layers.json")
+    elif args.command == "assemble":
+        result = assemble_artwork(args.job_dir)
+        print(Path(args.job_dir) / result["master_svg"])
+    elif args.command == "prepress":
+        trim = tuple(map(float, args.trim_mm.split(","))) if args.trim_mm else None
+        if trim and len(trim) != 2:
+            raise argparse.ArgumentTypeError("--trim-mm must be width,height")
+        result = preflight_pdf(args.job_dir, trim_mm=trim, bleed_mm=args.bleed_mm, icc_profile=args.icc_profile)
+        print(Path(args.job_dir) / result["pdf"])
+    elif args.command == "rebuild":
+        job = Path(args.output)
+        normalize_reference(args.image, job, rotation=args.rotation, corners=_parse_corners(args.corners))
+        segment_reference(job)
+        fit_background(job)
+        recover_text(job / "work" / "normalized_reference.png", job / "analysis" / "text_layers.json")
+        assemble_artwork(job)
+        trim = tuple(map(float, args.trim_mm.split(","))) if args.trim_mm else None
+        result = preflight_pdf(job, trim_mm=trim, bleed_mm=args.bleed_mm, icc_profile=args.icc_profile)
+        print(job / result["pdf"])
 
 
 if __name__ == "__main__":

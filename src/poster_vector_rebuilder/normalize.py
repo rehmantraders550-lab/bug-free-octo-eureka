@@ -6,12 +6,14 @@ from typing import Literal
 import hashlib
 import json
 import shutil
+import subprocess
+import csv
 
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-Rotation = Literal["keep", "90cw", "90ccw", "180"]
+Rotation = Literal["auto", "keep", "90cw", "90ccw", "180"]
 
 
 @dataclass(frozen=True)
@@ -238,6 +240,50 @@ def rotate_image(rgb: np.ndarray, rotation: Rotation) -> tuple[np.ndarray, np.nd
     raise ValueError(f"Unsupported rotation: {rotation}")
 
 
+def _select_rotation_from_ocr_scores(scores: dict[str, float]) -> str:
+    ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best, best_score = ordered[0]
+    second_score = ordered[1][1] if len(ordered) > 1 else 0.0
+    # Preserve the supplied orientation if OCR cannot establish a meaningful
+    # improvement. This makes auto orientation safe for non-text artwork.
+    if best_score < 100 or best_score < max(1.0, second_score) * 1.15:
+        return "keep"
+    return best
+
+
+def detect_text_orientation(rgb: np.ndarray) -> tuple[str, dict[str, float]]:
+    """Select an orientation from OCR quality without requiring a user step."""
+    executable = shutil.which("tesseract")
+    if not executable:
+        return "keep", {"keep": 0.0}
+    rotations: list[tuple[str, np.ndarray]] = [
+        ("keep", rgb),
+        ("90cw", cv2.rotate(rgb, cv2.ROTATE_90_CLOCKWISE)),
+        ("180", cv2.rotate(rgb, cv2.ROTATE_180)),
+        ("90ccw", cv2.rotate(rgb, cv2.ROTATE_90_COUNTERCLOCKWISE)),
+    ]
+    scores: dict[str, float] = {}
+    for name, candidate in rotations:
+        ok, encoded = cv2.imencode(".png", cv2.cvtColor(candidate, cv2.COLOR_RGB2BGR))
+        if not ok:
+            scores[name] = 0.0
+            continue
+        process = subprocess.run([executable, "stdin", "stdout", "--psm", "11", "tsv"], input=encoded.tobytes(), capture_output=True, check=False)
+        total = 0.0
+        if process.returncode == 0:
+            rows = csv.DictReader(process.stdout.decode("utf-8", "replace").splitlines(), delimiter="\t")
+            for row in rows:
+                word = (row.get("text") or "").strip()
+                try:
+                    confidence = float(row.get("conf") or -1)
+                except ValueError:
+                    confidence = -1
+                if sum(char.isalnum() for char in word) >= 2 and confidence > 0:
+                    total += confidence
+        scores[name] = total
+    return _select_rotation_from_ocr_scores(scores), scores
+
+
 def normalize_reference(
     input_path: str | Path,
     job_dir: str | Path,
@@ -255,7 +301,8 @@ def normalize_reference(
         detection = QuadDetection(supplied, "manual_override", _quad_score(supplied, rgb.shape[:2]))
 
     rectified, geom = warp_quad(rgb, detection.points)
-    normalized, rotation_matrix = rotate_image(rectified, rotation)
+    selected_rotation, orientation_scores = (detect_text_orientation(rectified) if rotation == "auto" else (rotation, None))
+    normalized, rotation_matrix = rotate_image(rectified, selected_rotation)
 
     work_dir = job_dir / "work"
     debug_dir = job_dir / "debug"
@@ -285,7 +332,9 @@ def normalize_reference(
             "points_tl_tr_br_bl": detection.points.round(3).tolist(),
         },
         **geom,
-        "rotation": rotation,
+        "rotation": selected_rotation,
+        "requested_rotation": rotation,
+        "orientation_ocr_scores": orientation_scores,
         "rotation_matrix": rotation_matrix.tolist(),
         "normalized_width": int(normalized.shape[1]),
         "normalized_height": int(normalized.shape[0]),

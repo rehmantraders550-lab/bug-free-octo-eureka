@@ -19,6 +19,10 @@ The goal is not to blindly trace every pixel. It is to infer a compact, human-ed
 - Configuration-driven generation
 - Raster colour-field sampling helper
 - GFC TurboWash background reconstruction starter
+- Confidence-aware background-safe edge maps and long panel-boundary detection
+- Measured background SVG, inference mask, error heatmap and ΔE report
+- Conservative Tesseract text metadata with confidence and font-status labels
+- Restricted-primitive SVG assembly plus Inkscape/Ghostscript vector-PDF proofing
 
 ## Upstream tools
 
@@ -44,9 +48,19 @@ pip install -e .
 
 poster-vector build configs/gfc_background.yaml -o output/gfc_background.svg
 poster-vector analyze reference.jpg -o output/analysis.json
+poster-vector normalize reference.jpg -o jobs/my-poster
+poster-vector segment jobs/my-poster
+poster-vector background jobs/my-poster
+poster-vector text jobs/my-poster
+poster-vector assemble jobs/my-poster
+poster-vector prepress jobs/my-poster
 ```
 
 Open the resulting SVG in CorelDRAW, Adobe Illustrator or Inkscape and edit the component gradients/panels individually.
+
+`prepress` always produces a vector PDF and Ghostscript proof. It only marks
+the PDF as production-certified after a trim size, bleed and ICC profile have
+been supplied; this prevents an RGB proof from being mislabeled as PDF/X CMYK.
 
 ## Repository structure
 
