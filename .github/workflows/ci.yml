@@ -175,7 +175,7 @@ jobs:
           gs -q -dNOPAUSE -dBATCH -sDEVICE=nullpage ci-output/job/delivery/artwork_press.pdf
           qpdf --check ci-output/job/delivery/artwork_press.pdf
           pdfcpu validate ci-output/job/delivery/artwork_press.pdf
-          pdfcpu validate -mode strict ci-output/job/delivery/artwork_press.pdf || true
+          pdfcpu validate -m strict ci-output/job/delivery/artwork_press.pdf || true
           pdfinfo -box ci-output/job/delivery/artwork_press.pdf
           pdfimages -list ci-output/job/delivery/artwork_press.pdf
           pdffonts ci-output/job/delivery/artwork_press.pdf
